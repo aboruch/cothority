@@ -75,6 +75,9 @@ type Service struct {
 	// collections cannot be stored, so they will be re-created whenever the
 	// service reloads.
 	collectionDB map[string]*collectionDB
+	// We need to store the state changes for keeping track
+	// of the history of an instance
+	stateChangeStorage *stateChangeStorage
 	// holds a link for every ByzCoin to the latest block that is included in
 	// the collection.
 	// TODO: merge collectionDB and pollChan into olState structure.
@@ -471,6 +474,11 @@ func (s *Service) createNewBlock(scID skipchain.SkipBlockID, r *onet.Roster, tx 
 	if err != nil {
 		return nil, err
 	}
+
+	// Store the state changes
+	// What happens if the storage fails ?? -> missing sc
+	s.stateChangeStorage.append(scs)
+
 	return ssbReply.Latest, nil
 }
 

@@ -1,7 +1,9 @@
 package byzcoin
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"sync"
@@ -13,6 +15,8 @@ import (
 	"github.com/dedis/onet/log"
 	"github.com/dedis/onet/network"
 )
+
+const bucketStateChangeStorage = "statechangestorage"
 
 func init() {
 	network.RegisterMessages(&darc.Signature{},
@@ -317,6 +321,94 @@ func (c *collectionDB) tryHash(ts []StateChange) (mr []byte, rerr error) {
 		}(sc.InstanceID)
 	}
 	mr = c.coll.GetRoot()
+	return
+}
+
+// StateChangeEntry is the object stored to keep track of instance history. It
+// contains the state change and the block index
+type StateChangeEntry struct {
+	StateChange StateChange
+	BlockIndex  int
+}
+
+// StateChangeEntries is a list of StateChangeEntry and it can be marshaled
+// and unmarshaled
+type StateChangeEntries []StateChangeEntry
+
+// Marshal will encode the list of entries into a byte array that
+// can be store inside the database
+func (sce StateChangeEntries) Marshal() ([]byte, error) {
+	b := bytes.Buffer{}
+	e := gob.NewEncoder(&b)
+	err := e.Encode(sce)
+
+	return b.Bytes(), err
+}
+
+// Unmarshal will decode a byte array and try populate it as
+// a list of StateChangeEntry
+func (sce *StateChangeEntries) Unmarshal(buf []byte) error {
+	b := bytes.Buffer{}
+	b.Write(buf)
+	d := gob.NewDecoder(&b)
+	return d.Decode(sce)
+}
+
+type stateChangeStorage struct {
+	db *bolt.DB
+}
+
+func (s *stateChangeStorage) append(scs StateChanges) error {
+	// prepare the state changes per InstanceID
+	sorted := make(map[string]StateChangeEntries)
+	for _, sc := range scs {
+		_, ok := sorted[string(sc.InstanceID)]
+		if !ok {
+			sorted[string(sc.InstanceID)] = make(StateChangeEntries, 0)
+		}
+
+		sorted[string(sc.InstanceID)] = append(sorted[string(sc.InstanceID)], StateChangeEntry{StateChange: sc})
+	}
+
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(bucketStateChangeStorage))
+		if err != nil {
+			log.Error("Fail to create the bucket of the state change storage")
+			return err
+		}
+
+		// append each list of state changes (or create the entry)
+		for _, scs := range sorted {
+			// k := b.Get(scs[0].InstanceID)
+
+			buf, err := scs.Marshal()
+			if err != nil {
+				return err
+			}
+
+			err = b.Put(scs[0].StateChange.InstanceID, buf)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+func (s *stateChangeStorage) getAll(id []byte) (entries StateChangeEntries, err error) {
+	err = s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketStateChangeStorage))
+
+		v := b.Get(id[:])
+
+		if v != nil {
+			return entries.Unmarshal(v)
+		}
+
+		return nil
+	})
+
 	return
 }
 

@@ -169,3 +169,21 @@ For more information, see [darc/README.md](darc/README.md).
 
 - [Contracts](Contracts.md) gives a short overview how contracts work and
 some examples how to use them.
+
+## Instance Versioning
+
+One of the values stored in the global state is the version of the instance
+that is necessary to prevent replay attacks (#1442) and to keep a timeline
+of the changes applied. The version is also included in the _StateChange_ 
+and its hash so that it cannot be tempered. 
+
+The list of _StateChange_ for each instance is stored in the service. It
+allows to iterate over the timeline of the changes in a efficient manner.
+The block where each state change has been applied can be found using
+the block index attached to each element of the list.
+
+The version of the instance is monotonically increased by the ByzCoin service
+to keep the logic separate from the contracts. If a _ClientTransaction_ contains
+more than an instruction for a given instance, it must increase the version
+of the instance accordingly to pass the replay attack test (this will be
+accurate after #1442).

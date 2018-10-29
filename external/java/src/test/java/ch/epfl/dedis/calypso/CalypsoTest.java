@@ -1,11 +1,13 @@
 package ch.epfl.dedis.calypso;
 
+import ch.epfl.dedis.integration.DockerTestServerController;
 import ch.epfl.dedis.integration.TestServerController;
 import ch.epfl.dedis.integration.TestServerInit;
 import ch.epfl.dedis.lib.Hex;
 import ch.epfl.dedis.byzcoin.ByzCoinRPC;
 import ch.epfl.dedis.byzcoin.Proof;
 import ch.epfl.dedis.byzcoin.contracts.DarcInstance;
+import ch.epfl.dedis.lib.SkipblockId;
 import ch.epfl.dedis.lib.crypto.KeyPair;
 import ch.epfl.dedis.lib.crypto.Point;
 import ch.epfl.dedis.lib.darc.Darc;
@@ -15,10 +17,12 @@ import ch.epfl.dedis.lib.darc.SignerEd25519;
 import ch.epfl.dedis.lib.exception.CothorityCommunicationException;
 import ch.epfl.dedis.lib.exception.CothorityException;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.xml.bind.DatatypeConverter;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Arrays;
@@ -377,5 +381,20 @@ class CalypsoTest {
         ReadInstance ri = new ReadInstance(calypso2, wr, Arrays.asList(reader2));
         Document doc2 = Document.fromCalypso(calypso2, ri.getInstance().getId(), reader2.getPrivate());
         assertTrue(doc.equals(doc2));
+    }
+
+    @Disabled("Test is disabled until EPFL fix this bug - it show what causes the problem")
+    @Test
+    void connectToExistingLts() throws CothorityException, InterruptedException {
+        LTSId ltsId1 = calypso.getLTSId();
+        ((DockerTestServerController)testInstanceController).restartContainer();
+        logger.info("Server started");
+        String ltsIdHex = DatatypeConverter.printHexBinary(ltsId1.getId());
+
+        LTSId ltsId2 = new LTSId(DatatypeConverter.parseHexBinary(ltsIdHex));
+
+        CalypsoRPC client2 = CalypsoRPC.fromCalypso(testInstanceController.getRoster(), new SkipblockId(calypso.getSkipchain().getID().getId()), ltsId2);
+        assertNotNull(client2);
+        client2.checkLiveness();
     }
 }

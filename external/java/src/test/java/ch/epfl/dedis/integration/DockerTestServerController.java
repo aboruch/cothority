@@ -13,6 +13,10 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.ImageFromDockerfile;
 
 import java.io.IOException;
+import java.net.BindException;
+import java.net.Inet4Address;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -21,6 +25,9 @@ public class DockerTestServerController extends TestServerController {
     private static final Logger logger = LoggerFactory.getLogger(DockerTestServerController.class);
     private static final String TEST_SERVER_IMAGE_NAME = "dedis/conode-test:latest";
     private static final String TEMPORARY_DOCKER_IMAGE = "conode-test-run";
+    private static final long PORT_TEST_WAIT = 6000L;
+    private static final int PORT_TEST_TRIES = 40;
+
 
     private final GenericContainer<?> blockchainContainer;
 
@@ -102,5 +109,53 @@ public class DockerTestServerController extends TestServerController {
 
         dockerClient.execStartCmd(execCreateCmdResponse.getId())
                 .exec(new FrameConsumerResultCallback()).awaitStarted();
+    }
+
+    public void stopContainer() {
+        blockchainContainer.stop();
+    }
+
+    public void restartContainer() throws InterruptedException {
+        logger.info("Container restarting");
+        stopContainer();
+        logger.info("Wait for release all ports");
+        ensurePortsNotInUse((Integer[]) blockchainContainer.getExposedPorts().toArray(new Integer[0]));
+        logger.info("Starting new container");
+        blockchainContainer.start();
+    }
+
+    private void ensurePortsNotInUse(Integer[] portsToExpose) throws InterruptedException {
+        if (portsToExpose.length <= 0) {
+            return;
+        }
+        int portToTest = portsToExpose[0];
+
+        for (int i = 0; i < PORT_TEST_TRIES; i++) {
+            if (!checkAddress(portToTest)) {
+                return;
+            }
+            logger.warn(String.format("port already in use (%d) exists - let's try to wait a little bit", portToTest));
+
+            Thread.sleep(PORT_TEST_WAIT);
+        }
+
+        logger.error("port (%d) is still in use", portToTest);
+        throw new IllegalStateException(String.format("port (%d) is still in use", portToTest));
+    }
+
+    private boolean checkAddress(Integer integer) throws InterruptedException {
+
+        try(Socket socket = new Socket()) {
+            InetSocketAddress inetSocketAddress = new InetSocketAddress(Inet4Address.getByAddress(new byte[]{0, 0, 0, 0}), integer);
+            socket.bind(inetSocketAddress);
+            socket.setReuseAddress(true);
+        } catch (BindException e) {
+            return true;
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+
+        Thread.sleep(PORT_TEST_WAIT);
+        return false;
     }
 }
